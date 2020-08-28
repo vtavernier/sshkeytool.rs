@@ -177,8 +177,7 @@ fn main() -> Result<()> {
             }
         }
         SubCommand::Fetch(fetch_args) => {
-            let allowed_hosts: HashSet<String> =
-                HashSet::from_iter(fetch_args.only.into_iter());
+            let allowed_hosts: HashSet<String> = HashSet::from_iter(fetch_args.only.into_iter());
 
             let re = regex::Regex::new(r#"^\s*([a-zA-Z0-9]+)\s*(.*?)\s*$"#).unwrap();
 
@@ -298,20 +297,23 @@ fn main() -> Result<()> {
                                 ],
                                 subprocess::PopenConfig {
                                     stdout: subprocess::Redirection::Pipe,
-                                    stdin: subprocess::Redirection::RcFile(tmp.clone()),
+                                    stdin: subprocess::Redirection::Pipe,
                                     stderr: subprocess::Redirection::Pipe,
                                     ..Default::default()
                                 },
                             )?;
 
-                            let (raw_digest, _) = p.communicate_bytes(None)?;
+                            let (raw_digest, _) = p.communicate_bytes(Some(&raw_public_key[..]))?;
+
+                            let raw_digest = base_digest(&trim_bytes(raw_digest.unwrap()));
+                            let public_key = trim_bytes(raw_public_key);
 
                             let new_key = NewKey {
                                 host_id: host.host.id,
                                 secret_id: secret.as_ref().map(|s| s.id),
                                 private_key: raw_private_key,
-                                public_key: raw_public_key,
-                                digest: raw_digest.unwrap(),
+                                public_key,
+                                digest: raw_digest,
                                 path: file.to_string_lossy().to_string(),
                             };
 
@@ -405,6 +407,7 @@ fn main() -> Result<()> {
 
                     for line in reader.lines() {
                         let line = line?;
+                        let line = line.trim_end();
 
                         // Extract digest
                         let mut p = subprocess::Popen::create(
@@ -417,15 +420,21 @@ fn main() -> Result<()> {
                             },
                         )?;
 
-                        let (raw_digest, _) = p.communicate(Some(line.as_str()))?;
+                        let (raw_digest, _) = p.communicate(Some(line))?;
                         if let Some(raw_digest) = raw_digest {
+                            let raw_digest = base_digest(raw_digest.trim_end().as_bytes());
+
                             if !raw_digest.is_empty() {
-                                info!("host {} has authorized key {}", host.host, raw_digest);
+                                info!(
+                                    "host {} has authorized key {}",
+                                    host.host,
+                                    String::from_utf8_lossy(&raw_digest)
+                                );
 
                                 let new_key = NewAuthorizedKey {
                                     host_id: host.host.id,
                                     public_key: line.as_bytes(),
-                                    digest: raw_digest.as_bytes(),
+                                    digest: &raw_digest,
                                 };
 
                                 // Insert (or update) key in the database
@@ -440,15 +449,14 @@ fn main() -> Result<()> {
                                 let authorized_key = {
                                     use sshkt::schema::authorized_keys::dsl::*;
                                     AuthorizedKey::belonging_to(&host.host)
-                                        .filter(digest.eq(raw_digest.as_bytes()))
+                                        .filter(digest.eq(&raw_digest))
                                         .get_result::<AuthorizedKey>(&conn)
                                 }?;
 
                                 // Ensure all references to this key are properly set up
                                 for existing_key in {
                                     use sshkt::schema::keys::dsl::*;
-                                    keys.filter(digest.eq(raw_digest.as_bytes()))
-                                        .load::<Key>(&conn)
+                                    keys.filter(digest.eq(&raw_digest)).load::<Key>(&conn)
                                 }? {
                                     info!(
                                         "key is present on host {} (id: {})",
@@ -497,4 +505,25 @@ fn set_key_permissions(fs: &mut std::fs::File) -> Result<()> {
 #[cfg(not(target_os = "linux"))]
 fn set_key_permissions(_fs: &mut std::fs::File) -> Result<()> {
     Ok(())
+}
+
+fn trim_bytes(mut value: Vec<u8>) -> Vec<u8> {
+    while let Some(b' ') | Some(b'\t') | Some(b'\r') | Some(b'\n') = value.last() {
+        value.pop();
+    }
+
+    value
+}
+
+fn base_digest(value: &[u8]) -> Vec<u8> {
+    let parts: Vec<_> = value.splitn(3, |i| *i == b' ').collect();
+    let mut res = Vec::new();
+
+    res.extend(parts[0]);
+    res.push(b' ');
+    res.extend(parts[1]);
+    res.push(b' ');
+    res.extend(parts[2].rsplitn(2, |i| *i == b' ').next().unwrap());
+
+    res
 }
