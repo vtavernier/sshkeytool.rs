@@ -1,0 +1,7 @@
+CREATE TABLE secrets (
+	id INTEGER PRIMARY KEY NOT NULL,
+	host_id INTEGER NOT NULL,
+	secret BLOB NOT NULL,
+	encrypted INTEGER NOT NULL,
+	FOREIGN KEY (host_id) REFERENCES hosts(id)
+)
