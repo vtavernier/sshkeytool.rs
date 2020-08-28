@@ -1,4 +1,9 @@
-#[derive(Queryable)]
+use crate::schema::keys;
+
+use super::Host;
+
+#[derive(Identifiable, Queryable, Associations, PartialEq, Debug)]
+#[belongs_to(Host)]
 pub struct Key {
     pub id: i32,
     pub host_id: i32,
@@ -9,9 +14,7 @@ pub struct Key {
     pub path: String,
 }
 
-use crate::schema::keys;
-
-#[derive(Insertable)]
+#[derive(Insertable, PartialEq, Debug)]
 #[table_name = "keys"]
 pub struct NewKey {
     pub host_id: i32,

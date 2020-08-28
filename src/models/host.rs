@@ -1,4 +1,6 @@
-#[derive(Queryable)]
+use crate::schema::hosts;
+
+#[derive(Identifiable, Queryable, PartialEq, Debug)]
 pub struct Host {
     pub id: i32,
     pub name: String,

@@ -1,4 +1,9 @@
-#[derive(Queryable)]
+use crate::schema::configs;
+
+use super::Host;
+
+#[derive(Identifiable, Queryable, Associations, PartialEq, Debug)]
+#[belongs_to(Host)]
 pub struct Config {
     pub id: i32,
     pub host_id: i32,
@@ -8,9 +13,7 @@ pub struct Config {
     pub key_id: Option<i32>,
 }
 
-use crate::schema::configs;
-
-#[derive(Debug, Insertable)]
+#[derive(Insertable, PartialEq, Debug)]
 #[table_name = "configs"]
 pub struct NewConfig<'a> {
     pub host_id: i32,

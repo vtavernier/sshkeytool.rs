@@ -1,9 +1,14 @@
+use crate::schema::secrets;
+
+use super::Host;
+
 pub trait EncryptableSecret {
     fn encrypted_mut(&mut self) -> &mut i32;
     fn secret_mut(&mut self) -> &mut Vec<u8>;
 }
 
-#[derive(Queryable)]
+#[derive(Identifiable, Queryable, Associations, PartialEq, Debug)]
+#[belongs_to(Host)]
 pub struct Secret {
     pub id: i32,
     pub host_id: i32,
@@ -21,9 +26,7 @@ impl EncryptableSecret for Secret {
     }
 }
 
-use crate::schema::secrets;
-
-#[derive(Insertable)]
+#[derive(Insertable, PartialEq, Debug)]
 #[table_name = "secrets"]
 pub struct NewSecret {
     pub host_id: i32,

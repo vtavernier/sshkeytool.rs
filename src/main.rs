@@ -161,10 +161,7 @@ fn main() -> Result<()> {
             } {
                 info!("found host id {}", host.id);
 
-                for mut secret in {
-                    use sshkt::schema::secrets::dsl::*;
-                    secrets.filter(host_id.eq(host.id)).load::<Secret>(&conn)
-                }? {
+                for mut secret in Secret::belonging_to(&host).load::<Secret>(&conn)? {
                     if secret.encrypted != 0 {
                         if secret.decrypt(key.as_ref()).is_some() {
                             info!(
@@ -209,12 +206,7 @@ fn main() -> Result<()> {
 
                 // Find secrets for this host
                 let mut secrets = vec![];
-                for mut secret in {
-                    use sshkt::schema::secrets::dsl::*;
-                    secrets
-                        .filter(host_id.eq(host.host.id))
-                        .load::<Secret>(&conn)
-                }? {
+                for mut secret in Secret::belonging_to(&host.host).load::<Secret>(&conn)? {
                     if let Some(()) = secret.decrypt(key.as_ref()) {
                         secrets.push(Some(secret));
                     }
@@ -400,9 +392,9 @@ fn main() -> Result<()> {
                                     // Find result
                                     {
                                         use sshkt::schema::keys::dsl::*;
-                                        keys.select(id)
+                                        Key::belonging_to(&host.host)
+                                            .select(id)
                                             .filter(path.eq(&key_path))
-                                            .filter(host_id.eq(host.host.id))
                                             .load::<i32>(&conn)
                                             .into_iter()
                                             .next()
