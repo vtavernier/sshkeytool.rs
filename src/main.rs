@@ -31,6 +31,7 @@ enum SubCommand {
     AddSecret(AddSecretArgs),
     ShowSecret(ShowSecretArgs),
     Fetch(FetchArgs),
+    Cleanup(CleanupArgs),
 }
 
 #[derive(FromArgs)]
@@ -70,6 +71,15 @@ struct FetchArgs {
     #[argh(option)]
     /// only hostnames to include in the fetch
     only: Vec<String>,
+}
+
+#[derive(FromArgs)]
+/// Cleanup obsolete entries from the database
+#[argh(subcommand, name = "cleanup")]
+struct CleanupArgs {
+    #[argh(switch, short = 'n')]
+    /// dry-run
+    dry_run: bool,
 }
 
 fn main() -> Result<()> {
@@ -487,6 +497,24 @@ fn main() -> Result<()> {
                 } else {
                     warn!("no .ssh/authorized_keys for {}", &host.host);
                 }
+            }
+        }
+        SubCommand::Cleanup(CleanupArgs { dry_run }) => {
+            if !dry_run {
+                // First, remove all config entries for hosts where the IdentityFile is not found
+                diesel::sql_query(
+                    "UPDATE configs
+SET removed = 1
+WHERE id in (SELECT c1.id
+             FROM configs c1
+             WHERE (SELECT COUNT(*)
+                    FROM configs c2
+                    WHERE lower(c2.key) = 'identityfile'
+                      AND c2.key_id IS NULL
+                      AND c1.host_id = c2.host_id
+                      AND (c1.host = c2.host OR c2.host = '*' OR c2.host IS NULL)) > 0)",
+                )
+                .execute(&conn)?;
             }
         }
     }
