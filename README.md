@@ -21,17 +21,9 @@ encrypted in the keys table):
 
     cargo run -- add-secret --host-name my-computer --host-os linux 'password'
 
-Fetch the keys:
+Fetch the information from remote hosts:
 
-    cargo run -- fetch-keys
-
-Fetch the configuration details:
-
-    cargo run -- fetch-configs
-
-Fetch the authorized keys:
-
-    cargo run -- fetch-authorized-keys
+    cargo run -- fetch
 
 Now you can explore `db.sqlite3` to analyze the contents of your SSH
 configuration and keys.

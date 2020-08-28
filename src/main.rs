@@ -30,9 +30,7 @@ struct Args {
 enum SubCommand {
     AddSecret(AddSecretArgs),
     ShowSecret(ShowSecretArgs),
-    FetchKeys(FetchKeysArgs),
-    FetchConfig(FetchConfigArgs),
-    FetchAuthorizedKeys(FetchAuthorizedKeysArgs),
+    Fetch(FetchArgs),
 }
 
 #[derive(FromArgs)]
@@ -66,27 +64,9 @@ struct ShowSecretArgs {
 }
 
 #[derive(FromArgs)]
-/// Fetch the keys from remote sources
-#[argh(subcommand, name = "fetch-keys")]
-struct FetchKeysArgs {
-    #[argh(option)]
-    /// only hostnames to include in the fetch
-    only: Vec<String>,
-}
-
-#[derive(FromArgs)]
-/// Fetch the configs from remote sources
-#[argh(subcommand, name = "fetch-configs")]
-struct FetchConfigArgs {
-    #[argh(option)]
-    /// only hostnames to include in the fetch
-    only: Vec<String>,
-}
-
-#[derive(FromArgs)]
-/// Fetch the authorized keys from remote sources
-#[argh(subcommand, name = "fetch-authorized-keys")]
-struct FetchAuthorizedKeysArgs {
+/// Fetch all the SSH information from remote hosts
+#[argh(subcommand, name = "fetch")]
+struct FetchArgs {
     #[argh(option)]
     /// only hostnames to include in the fetch
     only: Vec<String>,
@@ -196,12 +176,13 @@ fn main() -> Result<()> {
                 bail!("host {} (os type: {}) not found", host_name, host_os);
             }
         }
-        SubCommand::FetchKeys(fetch_keys_args) => {
+        SubCommand::Fetch(fetch_args) => {
             let allowed_hosts: HashSet<String> =
-                HashSet::from_iter(fetch_keys_args.only.into_iter());
+                HashSet::from_iter(fetch_args.only.into_iter());
+
+            let re = regex::Regex::new(r#"^\s*([a-zA-Z0-9]+)\s*(.*?)\s*$"#).unwrap();
 
             // List hosts
-            //let mut all_hosts = Vec::new();
             for host in {
                 use sshkt::schema::hosts::dsl::*;
                 hosts.load::<Host>(&conn)
@@ -225,8 +206,9 @@ fn main() -> Result<()> {
                 // So we always try no key last
                 secrets.push(None);
 
-                // Fetch all keys from the server
                 let sftp = host.ssh_connection.sftp()?;
+
+                // Fetch all keys from the server
                 for (file, stat) in sftp.readdir(&Path::new(&host.host.ssh_base_folder))? {
                     // Skip files which are probably not private keys
                     let basename = if let Some(os_str) = file.file_name() {
@@ -350,30 +332,8 @@ fn main() -> Result<()> {
                         }
                     }
                 }
-            }
-        }
-        SubCommand::FetchConfig(fetch_config_args) => {
-            let allowed_hosts: HashSet<String> =
-                HashSet::from_iter(fetch_config_args.only.into_iter());
 
-            let re = regex::Regex::new(r#"^\s*([a-zA-Z0-9]+)\s*(.*?)\s*$"#).unwrap();
-
-            // List hosts
-            //let mut all_hosts = Vec::new();
-            for host in {
-                use sshkt::schema::hosts::dsl::*;
-                hosts.load::<Host>(&conn)
-            }? {
-                if !allowed_hosts.is_empty() && !allowed_hosts.contains(&host.name) {
-                    info!("skipping host: {}", host);
-                    continue;
-                }
-
-                // Connect to the host
-                let host = sshkt::connect(host)?;
-
-                // Fetch config from this server
-                let sftp = host.ssh_connection.sftp()?;
+                // Fetch config
                 if let Ok(file) =
                     sftp.open(&PathBuf::from(&host.host.ssh_base_folder).join("config"))
                 {
@@ -436,27 +396,8 @@ fn main() -> Result<()> {
                 } else {
                     warn!("no .ssh/config for {}", &host.host);
                 }
-            }
-        }
-        SubCommand::FetchAuthorizedKeys(fetch_authorized_keys_args) => {
-            let allowed_hosts: HashSet<String> =
-                HashSet::from_iter(fetch_authorized_keys_args.only.into_iter());
-
-            // List hosts
-            for host in {
-                use sshkt::schema::hosts::dsl::*;
-                hosts.load::<Host>(&conn)
-            }? {
-                if !allowed_hosts.is_empty() && !allowed_hosts.contains(&host.name) {
-                    info!("skipping host: {}", host);
-                    continue;
-                }
-
-                // Connect to the host
-                let host = sshkt::connect(host)?;
 
                 // Fetch authorized_keys from this server
-                let sftp = host.ssh_connection.sftp()?;
                 if let Ok(file) =
                     sftp.open(&PathBuf::from(&host.host.ssh_base_folder).join("authorized_keys"))
                 {
