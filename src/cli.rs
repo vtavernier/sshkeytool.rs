@@ -480,3 +480,21 @@ WHERE NOT removed
 
     Ok(())
 }
+
+pub fn remove_host(
+    conn: &SqliteConnection,
+    _key: Option<&SecretKey>,
+    args: RemoveHostArgs,
+) -> Result<()> {
+    use sshkt::schema::configs::dsl::*;
+
+    // Remove all matching hosts
+    for host_spec in &args.hosts {
+        let changed = diesel::update(configs.filter(host.eq(host_spec)).filter(removed.eq(false)))
+            .set(removed.eq(true))
+            .execute(conn)?;
+        info!("removed {} directives for {}", changed, host_spec);
+    }
+
+    Ok(())
+}

@@ -34,6 +34,7 @@ pub enum SubCommand {
     ShowSecret(ShowSecretArgs),
     Fetch(FetchArgs),
     Cleanup(CleanupArgs),
+    RemoveHost(RemoveHostArgs),
 }
 
 #[derive(FromArgs)]
@@ -84,6 +85,19 @@ pub struct CleanupArgs {
     dry_run: bool,
 }
 
+#[derive(FromArgs)]
+/// Remove a host from known configurations
+#[argh(subcommand, name = "remove-host")]
+pub struct RemoveHostArgs {
+    #[argh(switch)]
+    /// run cleanup after removing host
+    cleanup: bool,
+
+    #[argh(positional)]
+    /// hosts specification to remove
+    hosts: Vec<String>,
+}
+
 fn main() -> Result<()> {
     // Load arguments from .env
     dotenv::dotenv().ok();
@@ -114,6 +128,15 @@ fn main() -> Result<()> {
         SubCommand::ShowSecret(args) => cli::show_secret(&conn, key.as_ref(), args),
         SubCommand::Fetch(args) => cli::fetch(&conn, key.as_ref(), args),
         SubCommand::Cleanup(args) => cli::cleanup(&conn, key.as_ref(), args),
+        SubCommand::RemoveHost(args) => {
+            let cleanup = args.cleanup;
+            cli::remove_host(&conn, key.as_ref(), args)?;
+            if cleanup {
+                cli::cleanup(&conn, key.as_ref(), CleanupArgs { dry_run: false })
+            } else {
+                Ok(())
+            }
+        }
     }
 }
 
