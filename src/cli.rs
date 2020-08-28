@@ -427,7 +427,8 @@ pub fn cleanup(conn: &SqliteConnection, _key: Option<&SecretKey>, args: CleanupA
         let changed = diesel::sql_query(
             "UPDATE configs
 SET removed = 1
-WHERE id in (SELECT c1.id
+WHERE NOT removed
+  AND id in (SELECT c1.id
              FROM configs c1
              WHERE (SELECT COUNT(*)
                     FROM configs c2
@@ -444,9 +445,12 @@ WHERE id in (SELECT c1.id
 
         // Remove all authorized_keys which don't have any known private key files
         let changed = diesel::sql_query(
-            "SELECT ak1.*
-FROM authorized_keys ak1
-WHERE (SELECT COUNT(*) FROM authorized_keys_keys akk WHERE akk.authorized_key_id = ak1.id) = 0",
+            "UPDATE authorized_keys
+SET removed = 1
+WHERE NOT removed
+  AND id IN (SELECT ak1.id
+             FROM authorized_keys ak1
+             WHERE (SELECT COUNT(*) FROM authorized_keys_keys akk WHERE akk.authorized_key_id = ak1.id) = 0)",
         )
         .execute(conn)?;
         info!(
@@ -458,7 +462,8 @@ WHERE (SELECT COUNT(*) FROM authorized_keys_keys akk WHERE akk.authorized_key_id
         let changed = diesel::sql_query(
             "UPDATE keys
 SET removed = 1
-WHERE id in (SELECT k1.id
+WHERE NOT removed
+  AND id in (SELECT k1.id
              FROM keys k1
              WHERE ((SELECT COUNT(*)
                      FROM authorized_keys_keys akk
