@@ -35,6 +35,7 @@ pub enum SubCommand {
     Fetch(FetchArgs),
     Cleanup(CleanupArgs),
     RemoveHost(RemoveHostArgs),
+    GenFolders(GenFoldersArgs),
 }
 
 #[derive(FromArgs)]
@@ -98,6 +99,11 @@ pub struct RemoveHostArgs {
     hosts: Vec<String>,
 }
 
+#[derive(FromArgs)]
+/// Generate .ssh folders for the configured hosts
+#[argh(subcommand, name = "gen-folders")]
+pub struct GenFoldersArgs {}
+
 fn main() -> Result<()> {
     // Load arguments from .env
     dotenv::dotenv().ok();
@@ -137,19 +143,23 @@ fn main() -> Result<()> {
                 Ok(())
             }
         }
+        SubCommand::GenFolders(args) => {
+            let un = whoami::username();
+            cli::gen_folders(&conn, key.as_ref(), args, un.as_str())
+        }
     }
 }
 
 #[cfg(target_os = "linux")]
-fn set_key_permissions(fs: &mut std::fs::File) -> Result<()> {
+fn set_key_permissions(fs: &mut std::fs::File, perms: u32) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = fs.metadata()?.permissions();
-    permissions.set_mode(0o600);
+    permissions.set_mode(perms);
     Ok(fs.set_permissions(permissions)?)
 }
 
 #[cfg(not(target_os = "linux"))]
-fn set_key_permissions(_fs: &mut std::fs::File) -> Result<()> {
+fn set_key_permissions(_fs: &mut std::fs::File, perms: u32) -> Result<()> {
     Ok(())
 }
 
