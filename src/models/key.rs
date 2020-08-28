@@ -12,6 +12,7 @@ pub struct Key {
     pub public_key: Vec<u8>,
     pub digest: Vec<u8>,
     pub path: String,
+    pub removed: bool,
 }
 
 #[derive(Insertable, PartialEq, Debug)]

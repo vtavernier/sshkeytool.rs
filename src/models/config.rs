@@ -11,6 +11,7 @@ pub struct Config {
     pub key: String,
     pub value: String,
     pub key_id: Option<i32>,
+    pub removed: bool,
 }
 
 #[derive(Insertable, PartialEq, Debug)]

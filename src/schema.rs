@@ -6,6 +6,7 @@ table! {
         key -> Text,
         value -> Text,
         key_id -> Nullable<Integer>,
+        removed -> Bool,
     }
 }
 
@@ -31,6 +32,7 @@ table! {
         public_key -> Binary,
         digest -> Binary,
         path -> Text,
+        removed -> Bool,
     }
 }
 
