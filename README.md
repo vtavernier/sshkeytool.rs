@@ -29,6 +29,10 @@ Fetch the configuration details:
 
     cargo run -- fetch-configs
 
+Fetch the authorized keys:
+
+    cargo run -- fetch-authorized-keys
+
 Now you can explore `db.sqlite3` to analyze the contents of your SSH
 configuration and keys.
 

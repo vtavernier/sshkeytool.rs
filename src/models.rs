@@ -1,3 +1,6 @@
+mod authorized_key;
+pub use authorized_key::*;
+
 mod config;
 pub use config::*;
 

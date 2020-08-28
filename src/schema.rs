@@ -1,4 +1,21 @@
 table! {
+    authorized_keys (id) {
+        id -> Integer,
+        host_id -> Integer,
+        public_key -> Binary,
+        digest -> Binary,
+        removed -> Bool,
+    }
+}
+
+table! {
+    authorized_keys_keys (authorized_key_id, key_id) {
+        authorized_key_id -> Integer,
+        key_id -> Integer,
+    }
+}
+
+table! {
     configs (id) {
         id -> Integer,
         host_id -> Integer,
@@ -45,12 +62,17 @@ table! {
     }
 }
 
+joinable!(authorized_keys -> hosts (host_id));
+joinable!(authorized_keys_keys -> authorized_keys (authorized_key_id));
+joinable!(authorized_keys_keys -> keys (key_id));
 joinable!(configs -> keys (key_id));
 joinable!(keys -> hosts (host_id));
 joinable!(keys -> secrets (secret_id));
 joinable!(secrets -> hosts (host_id));
 
 allow_tables_to_appear_in_same_query!(
+    authorized_keys,
+    authorized_keys_keys,
     configs,
     hosts,
     keys,

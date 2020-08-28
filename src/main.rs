@@ -32,6 +32,7 @@ enum SubCommand {
     ShowSecret(ShowSecretArgs),
     FetchKeys(FetchKeysArgs),
     FetchConfig(FetchConfigArgs),
+    FetchAuthorizedKeys(FetchAuthorizedKeysArgs),
 }
 
 #[derive(FromArgs)]
@@ -77,6 +78,15 @@ struct FetchKeysArgs {
 /// Fetch the configs from remote sources
 #[argh(subcommand, name = "fetch-configs")]
 struct FetchConfigArgs {
+    #[argh(option)]
+    /// only hostnames to include in the fetch
+    only: Vec<String>,
+}
+
+#[derive(FromArgs)]
+/// Fetch the authorized keys from remote sources
+#[argh(subcommand, name = "fetch-authorized-keys")]
+struct FetchAuthorizedKeysArgs {
     #[argh(option)]
     /// only hostnames to include in the fetch
     only: Vec<String>,
@@ -425,6 +435,108 @@ fn main() -> Result<()> {
                     }
                 } else {
                     warn!("no .ssh/config for {}", &host.host);
+                }
+            }
+        }
+        SubCommand::FetchAuthorizedKeys(fetch_authorized_keys_args) => {
+            let allowed_hosts: HashSet<String> =
+                HashSet::from_iter(fetch_authorized_keys_args.only.into_iter());
+
+            // List hosts
+            for host in {
+                use sshkt::schema::hosts::dsl::*;
+                hosts.load::<Host>(&conn)
+            }? {
+                if !allowed_hosts.is_empty() && !allowed_hosts.contains(&host.name) {
+                    info!("skipping host: {}", host);
+                    continue;
+                }
+
+                // Connect to the host
+                let host = sshkt::connect(host)?;
+
+                // Fetch authorized_keys from this server
+                let sftp = host.ssh_connection.sftp()?;
+                if let Ok(file) =
+                    sftp.open(&PathBuf::from(&host.host.ssh_base_folder).join("authorized_keys"))
+                {
+                    let reader = std::io::BufReader::new(file);
+
+                    for line in reader.lines() {
+                        let line = line?;
+
+                        // Extract digest
+                        let mut p = subprocess::Popen::create(
+                            &["ssh-keygen", "-l", "-q", "-f", "/dev/stdin"],
+                            subprocess::PopenConfig {
+                                stdout: subprocess::Redirection::Pipe,
+                                stdin: subprocess::Redirection::Pipe,
+                                stderr: subprocess::Redirection::Pipe,
+                                ..Default::default()
+                            },
+                        )?;
+
+                        let (raw_digest, _) = p.communicate(Some(line.as_str()))?;
+                        if let Some(raw_digest) = raw_digest {
+                            if !raw_digest.is_empty() {
+                                info!("host {} has authorized key {}", host.host, raw_digest);
+
+                                let new_key = NewAuthorizedKey {
+                                    host_id: host.host.id,
+                                    public_key: line.as_bytes(),
+                                    digest: raw_digest.as_bytes(),
+                                };
+
+                                // Insert (or update) key in the database
+                                {
+                                    use sshkt::schema::authorized_keys;
+                                    diesel::replace_into(authorized_keys::table)
+                                        .values(new_key)
+                                        .execute(&conn)?;
+                                }
+
+                                // Find out the id of the target
+                                let authorized_key = {
+                                    use sshkt::schema::authorized_keys::dsl::*;
+                                    AuthorizedKey::belonging_to(&host.host)
+                                        .filter(digest.eq(raw_digest.as_bytes()))
+                                        .get_result::<AuthorizedKey>(&conn)
+                                }?;
+
+                                // Ensure all references to this key are properly set up
+                                for existing_key in {
+                                    use sshkt::schema::keys::dsl::*;
+                                    keys.filter(digest.eq(raw_digest.as_bytes()))
+                                        .load::<Key>(&conn)
+                                }? {
+                                    info!(
+                                        "key is present on host {} (id: {})",
+                                        sshkt::schema::hosts::dsl::hosts
+                                            .find(existing_key.host_id)
+                                            .get_result::<Host>(&conn)?,
+                                        existing_key.id
+                                    );
+
+                                    {
+                                        use sshkt::schema::authorized_keys_keys;
+                                        diesel::replace_into(authorized_keys_keys::table)
+                                            .values(&AuthorizedKeyKey {
+                                                authorized_key_id: authorized_key.id,
+                                                key_id: existing_key.id,
+                                            })
+                                            .execute(&conn)?;
+                                    }
+                                }
+                            } else {
+                                warn!(
+                                    "failed to extract key digest for host {} (key line: {:?})",
+                                    host.host, line
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    warn!("no .ssh/authorized_keys for {}", &host.host);
                 }
             }
         }
