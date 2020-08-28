@@ -36,6 +36,7 @@ pub enum SubCommand {
     Cleanup(CleanupArgs),
     RemoveHost(RemoveHostArgs),
     GenFolders(GenFoldersArgs),
+    SwapKey(SwapKeyArgs),
 }
 
 #[derive(FromArgs)]
@@ -104,6 +105,27 @@ pub struct RemoveHostArgs {
 #[argh(subcommand, name = "gen-folders")]
 pub struct GenFoldersArgs {}
 
+#[derive(FromArgs)]
+/// Change the key used in an IdentityFile directive
+#[argh(subcommand, name = "swap-key")]
+pub struct SwapKeyArgs {
+    #[argh(option)]
+    /// host specification to change
+    host_spec_from: String,
+
+    #[argh(option)]
+    /// host name hosting the config
+    host_from: String,
+
+    #[argh(option)]
+    /// host os hosting the config
+    host_os_from: String,
+
+    #[argh(option)]
+    /// path to the target key to use instead
+    key_path: String,
+}
+
 fn main() -> Result<()> {
     // Load arguments from .env
     dotenv::dotenv().ok();
@@ -147,6 +169,7 @@ fn main() -> Result<()> {
             let un = whoami::username();
             cli::gen_folders(&conn, key.as_ref(), args, un.as_str())
         }
+        SubCommand::SwapKey(args) => cli::swap_key(&conn, key.as_ref(), args),
     }
 }
 

@@ -502,7 +502,7 @@ pub fn remove_host(
 pub fn gen_folders(
     conn: &SqliteConnection,
     _key: Option<&SecretKey>,
-    args: GenFoldersArgs,
+    _args: GenFoldersArgs,
     default_user: &str,
 ) -> Result<()> {
     let target_path = std::env::current_dir()?.join("out");
@@ -627,7 +627,9 @@ pub fn gen_folders(
                         .into_iter()
                         .filter_map(|s| s),
                 );
-                hs
+                let mut vec = Vec::from_iter(hs);
+                vec.sort();
+                vec
             } {
                 debug!("{}: looking for entries for {}", current_host, host_name);
                 write_host_config(&mut f, conn, &current_host, Some(host_name.as_str()))?;
@@ -675,6 +677,64 @@ fn write_host_config(
             value = directive.value
         )?;
     }
+
+    Ok(())
+}
+
+pub fn swap_key(
+    conn: &SqliteConnection,
+    _key: Option<&SecretKey>,
+    args: SwapKeyArgs,
+) -> Result<()> {
+    // Try to find the source host
+    let host = {
+        use sshkt::schema::hosts::dsl::*;
+        hosts
+            .filter(name.eq(&args.host_from))
+            .filter(os.eq(&args.host_os_from))
+            .get_result::<Host>(conn)
+    }?;
+
+    // Find the target key
+
+    // Resolve full path
+    let key_path = if args.key_path.starts_with("~/.ssh/") {
+        PathBuf::from(&host.ssh_base_folder)
+            .join(&args.key_path["~/.ssh/".len()..])
+            .to_string_lossy()
+            .to_string()
+    } else {
+        args.key_path.to_string()
+    };
+
+    // Find key based on path and host
+    let key = {
+        use sshkt::schema::keys::dsl::*;
+        Key::belonging_to(&host)
+            .filter(path.eq(&key_path))
+            .get_result::<Key>(conn)
+    }?;
+
+    // Ensure the key isn't deleted
+    if key.removed {
+        use sshkt::schema::keys::dsl::*;
+        diesel::update(keys.find(key.id))
+            .set(removed.eq(false))
+            .execute(conn)?;
+    }
+
+    // Set the IdentityFile property
+    let changed = diesel::replace_into(sshkt::schema::configs::dsl::configs)
+        .values(NewConfig {
+            host_id: host.id,
+            host: Some(&args.host_spec_from),
+            key: "IdentityFile",
+            value: &args.key_path,
+            key_id: Some(key.id),
+        })
+        .execute(conn)?;
+
+    info!("updated {} config directives", changed);
 
     Ok(())
 }
