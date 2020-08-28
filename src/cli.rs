@@ -96,11 +96,14 @@ pub fn show_secret(
 }
 
 pub fn fetch(conn: &SqliteConnection, key: Option<&SecretKey>, args: FetchArgs) -> Result<()> {
+    // List of hosts we're considering for this fetch round
     let allowed_hosts: HashSet<String> = HashSet::from_iter(args.only.into_iter());
 
+    // Regular expression for parsing config lines
     let re = regex::Regex::new(r#"^\s*([a-zA-Z0-9]+)\s*(.*?)\s*$"#).unwrap();
 
-    // List hosts
+    // First, connect to all hosts
+    let mut all_hosts = Vec::new();
     for host in {
         use sshkt::schema::hosts::dsl::*;
         hosts.load::<Host>(conn)
@@ -112,6 +115,7 @@ pub fn fetch(conn: &SqliteConnection, key: Option<&SecretKey>, args: FetchArgs) 
 
         // Connect to the host
         let host = sshkt::connect(host)?;
+        let sftp = host.ssh_connection.sftp()?;
 
         // Find secrets for this host
         let mut secrets = vec![];
@@ -124,8 +128,11 @@ pub fn fetch(conn: &SqliteConnection, key: Option<&SecretKey>, args: FetchArgs) 
         // So we always try no key last
         secrets.push(None);
 
-        let sftp = host.ssh_connection.sftp()?;
+        all_hosts.push((host, sftp, secrets));
+    }
 
+    // List hosts
+    for (host, sftp, secrets) in &all_hosts {
         // Fetch all keys from the server
         for (file, stat) in sftp.readdir(&Path::new(&host.host.ssh_base_folder))? {
             // Skip files which are probably not private keys
@@ -165,7 +172,7 @@ pub fn fetch(conn: &SqliteConnection, key: Option<&SecretKey>, args: FetchArgs) 
 
             let tmp = Rc::new(tmp);
 
-            for secret in &secrets {
+            for secret in secrets {
                 let passphrase = if let Some(secret) = secret {
                     String::from_utf8_lossy(&secret.secret[..])
                 } else {
@@ -252,7 +259,9 @@ pub fn fetch(conn: &SqliteConnection, key: Option<&SecretKey>, args: FetchArgs) 
                 }
             }
         }
+    }
 
+    for (host, sftp, _) in &all_hosts {
         // Fetch config
         if let Ok(file) = sftp.open(&PathBuf::from(&host.host.ssh_base_folder).join("config")) {
             let reader = std::io::BufReader::new(file);
@@ -314,7 +323,9 @@ pub fn fetch(conn: &SqliteConnection, key: Option<&SecretKey>, args: FetchArgs) 
         } else {
             warn!("no .ssh/config for {}", &host.host);
         }
+    }
 
+    for (host, sftp, _) in &all_hosts {
         // Fetch authorized_keys from this server
         if let Ok(file) =
             sftp.open(&PathBuf::from(&host.host.ssh_base_folder).join("authorized_keys"))
@@ -413,7 +424,7 @@ pub fn cleanup(conn: &SqliteConnection, _key: Option<&SecretKey>, args: CleanupA
 
     if !dry_run {
         // First, remove all config entries for hosts where the IdentityFile is not found
-        diesel::sql_query(
+        let changed = diesel::sql_query(
             "UPDATE configs
 SET removed = 1
 WHERE id in (SELECT c1.id
@@ -426,6 +437,40 @@ WHERE id in (SELECT c1.id
                       AND (c1.host = c2.host OR c2.host = '*' OR c2.host IS NULL)) > 0)",
         )
         .execute(conn)?;
+        info!(
+            "removed {} config elements whose IdentityFile was not found",
+            changed
+        );
+
+        // Remove all authorized_keys which don't have any known private key files
+        let changed = diesel::sql_query(
+            "SELECT ak1.*
+FROM authorized_keys ak1
+WHERE (SELECT COUNT(*) FROM authorized_keys_keys akk WHERE akk.authorized_key_id = ak1.id) = 0",
+        )
+        .execute(conn)?;
+        info!(
+            "removed {} authorized keys with no associated private key file",
+            changed
+        );
+
+        // Remove all unused keys
+        let changed = diesel::sql_query(
+            "UPDATE keys
+SET removed = 1
+WHERE id in (SELECT k1.id
+             FROM keys k1
+             WHERE ((SELECT COUNT(*)
+                     FROM authorized_keys_keys akk
+                              LEFT JOIN authorized_keys ak1 ON ak1.id = akk.authorized_key_id
+                     WHERE akk.key_id = k1.id
+                       AND NOT ak1.removed) +
+                    (SELECT COUNT(*)
+                     FROM configs c1
+                     WHERE c1.key_id IS NOT NULL AND c1.key_id = k1.id AND NOT c1.removed)) = 0)",
+        )
+        .execute(conn)?;
+        info!("removed {} keys which weren't used anywhere", changed);
     }
 
     Ok(())
