@@ -14,6 +14,7 @@ use diesel::prelude::*;
 use sshkt::models::*;
 
 mod cli;
+mod platform;
 
 #[derive(StructOpt)]
 /// SSH Key Management tool, written in Rust
@@ -155,19 +156,6 @@ fn main(args: Args) -> Result<()> {
         }
         SubCommand::SwapKey(args) => cli::swap_key(&conn, key.as_ref(), args),
     }
-}
-
-#[cfg(unix)]
-fn set_key_permissions(fs: &mut std::fs::File, perms: u32) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    let mut permissions = fs.metadata()?.permissions();
-    permissions.set_mode(perms);
-    Ok(fs.set_permissions(permissions)?)
-}
-
-#[cfg(not(unix))]
-fn set_key_permissions(_fs: &mut std::fs::File, perms: u32) -> Result<()> {
-    Ok(())
 }
 
 fn trim_bytes(mut value: Vec<u8>) -> Vec<u8> {
