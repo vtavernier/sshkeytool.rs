@@ -6,7 +6,7 @@ extern crate log;
 use std::net::TcpStream;
 use std::path::Path;
 
-use anyhow::Result;
+use color_eyre::eyre::Result;
 
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
@@ -14,8 +14,7 @@ use diesel::sqlite::SqliteConnection;
 pub mod models;
 pub mod schema;
 
-pub fn establish_connection() -> SqliteConnection {
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+pub fn establish_connection(database_url: &str) -> SqliteConnection {
     let res = SqliteConnection::establish(&database_url)
         .expect(&format!("Error connecting to {}", database_url));
 

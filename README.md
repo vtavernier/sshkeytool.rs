@@ -5,6 +5,10 @@ used way too many different identities.
 
 ## Usage
 
+Set the path to the database to use:
+
+    export SSHKT_DATABASE=db.sqlite3
+
 Set your password for database secrets (i.e. private key passphrases stored in
 the database):
 

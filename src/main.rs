@@ -7,28 +7,31 @@ use std::iter::FromIterator;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use anyhow::{bail, Result};
-use argh::FromArgs;
+use color_eyre::eyre::{bail, Result};
+use structopt::StructOpt;
 
 use diesel::prelude::*;
 use sshkt::models::*;
 
 mod cli;
 
-#[derive(FromArgs)]
+#[derive(StructOpt)]
 /// SSH Key Management tool, written in Rust
 pub struct Args {
-    #[argh(subcommand)]
+    #[structopt(subcommand)]
     /// command to run
     cmd: SubCommand,
 
-    #[argh(option)]
+    #[structopt(short, long = "db", env = "SSHKT_DATABASE")]
+    /// database url
+    database_url: String,
+
+    #[structopt(short, long, env = "SSHKT_PASSWORD")]
     /// database password for secrets
     password: Option<String>,
 }
 
-#[derive(FromArgs)]
-#[argh(subcommand)]
+#[derive(StructOpt)]
 pub enum SubCommand {
     AddSecret(AddSecretArgs),
     ShowSecret(ShowSecretArgs),
@@ -39,109 +42,90 @@ pub enum SubCommand {
     SwapKey(SwapKeyArgs),
 }
 
-#[derive(FromArgs)]
+#[derive(StructOpt)]
 /// Add a secret for decrypting key files
-#[argh(subcommand, name = "add-secret")]
 pub struct AddSecretArgs {
-    #[argh(option)]
+    #[structopt(long)]
     /// hostname to add the secret for
     host_name: String,
 
-    #[argh(option)]
+    #[structopt(long)]
     /// os to add the secret for
     host_os: String,
 
-    #[argh(positional)]
     /// value of the secret
     value: String,
 }
 
-#[derive(FromArgs)]
+#[derive(StructOpt)]
 /// Show a secret for decrypting key files
-#[argh(subcommand, name = "show-secret")]
 pub struct ShowSecretArgs {
-    #[argh(option)]
+    #[structopt(long)]
     /// hostname to add the secret for
     host_name: String,
 
-    #[argh(option)]
+    #[structopt(long)]
     /// os to add the secret for
     host_os: String,
 }
 
-#[derive(FromArgs)]
+#[derive(StructOpt)]
 /// Fetch all the SSH information from remote hosts
-#[argh(subcommand, name = "fetch")]
 pub struct FetchArgs {
-    #[argh(option)]
+    #[structopt(long)]
     /// only hostnames to include in the fetch
     only: Vec<String>,
 }
 
-#[derive(FromArgs)]
+#[derive(StructOpt)]
 /// Cleanup obsolete entries from the database
-#[argh(subcommand, name = "cleanup")]
 pub struct CleanupArgs {
-    #[argh(switch, short = 'n')]
+    #[structopt(short = "n", long)]
     /// dry-run
     dry_run: bool,
 }
 
-#[derive(FromArgs)]
+#[derive(StructOpt)]
 /// Remove a host from known configurations
-#[argh(subcommand, name = "remove-host")]
 pub struct RemoveHostArgs {
-    #[argh(switch)]
+    #[structopt(short, long)]
     /// run cleanup after removing host
     cleanup: bool,
 
-    #[argh(positional)]
     /// hosts specification to remove
     hosts: Vec<String>,
 }
 
-#[derive(FromArgs)]
+#[derive(StructOpt)]
 /// Generate .ssh folders for the configured hosts
-#[argh(subcommand, name = "gen-folders")]
 pub struct GenFoldersArgs {}
 
-#[derive(FromArgs)]
+#[derive(StructOpt)]
 /// Change the key used in an IdentityFile directive
-#[argh(subcommand, name = "swap-key")]
 pub struct SwapKeyArgs {
-    #[argh(option)]
+    #[structopt(long)]
     /// host specification to change
     host_spec_from: String,
 
-    #[argh(option)]
+    #[structopt(long)]
     /// host name hosting the config
     host_from: String,
 
-    #[argh(option)]
+    #[structopt(long)]
     /// host os hosting the config
     host_os_from: String,
 
-    #[argh(option)]
+    #[structopt(long)]
     /// path to the target key to use instead
     key_path: String,
 }
 
-fn main() -> Result<()> {
-    // Load arguments from .env
-    dotenv::dotenv().ok();
+#[paw::main]
+fn main(args: Args) -> Result<()> {
+    color_eyre::install()?;
 
     // Initialize logging
     env_logger::builder().format_timestamp(None).init();
-
-    // Parse args
-    let mut args: Args = argh::from_env();
-
-    // Fill in password from env
-    if args.password.is_none() {
-        if let Ok(env_pw) = std::env::var("SSHKT_PASSWORD") {
-            args.password = Some(env_pw);
-        }
-    }
 
     // Derive the key from the password
     let key = args
@@ -149,7 +133,7 @@ fn main() -> Result<()> {
         .map(|s| sshkt::models::SecretKey::new(s.as_str()));
 
     // Establish connection
-    let conn = sshkt::establish_connection();
+    let conn = sshkt::establish_connection(&args.database_url);
 
     match args.cmd {
         SubCommand::AddSecret(args) => cli::add_secret(&conn, key.as_ref(), args),
@@ -173,7 +157,7 @@ fn main() -> Result<()> {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 fn set_key_permissions(fs: &mut std::fs::File, perms: u32) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let mut permissions = fs.metadata()?.permissions();
@@ -181,7 +165,7 @@ fn set_key_permissions(fs: &mut std::fs::File, perms: u32) -> Result<()> {
     Ok(fs.set_permissions(permissions)?)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(unix))]
 fn set_key_permissions(_fs: &mut std::fs::File, perms: u32) -> Result<()> {
     Ok(())
 }
