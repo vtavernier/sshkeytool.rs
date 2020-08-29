@@ -303,7 +303,7 @@ pub fn fetch(conn: &SqliteConnection, key: Option<&SecretKey>, args: FetchArgs) 
 
                         let new_config = NewConfig {
                             host_id: host.host.id,
-                            host: current_host.as_ref().map(|s| s.as_str()),
+                            host: current_host.as_deref(),
                             key,
                             value,
                             key_id,
@@ -561,10 +561,7 @@ pub fn gen_folders(
                 writeln!(
                     f,
                     " {}@{}",
-                    host.ssh_user
-                        .as_ref()
-                        .map(|s| s.as_str())
-                        .unwrap_or(default_user),
+                    host.ssh_user.as_deref().unwrap_or(default_user),
                     host.name
                 )?;
 
@@ -590,7 +587,7 @@ pub fn gen_folders(
                     .load::<AuthorizedKey>(conn)
             }? {
                 f.write_all(&authorized_key.public_key)?;
-                writeln!(f, "")?;
+                writeln!(f)?;
 
                 info!(
                     "added {} to authorized_keys for {}",
@@ -662,7 +659,7 @@ fn write_host_config(
             .load::<Config>(conn)
     }? {
         if !wrote_host {
-            writeln!(f, "")?;
+            writeln!(f)?;
             if let Some(spec) = host_spec {
                 writeln!(f, "Host {}", spec)?;
                 indent = "    ";
